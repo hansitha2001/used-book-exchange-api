@@ -10,12 +10,12 @@ const orderSchema = new mongoose.Schema(
     buyer: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: [true, 'Buyer reference is required'],
+      default: null,
     },
     seller: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: [true, 'Seller reference is required'],
+      default: null,
     },
     type: {
       type: String,
@@ -57,8 +57,8 @@ orderSchema.pre('save', function (next) {
   if (this.type === 'exchange' && !this.offeredBook) {
     return next(new Error('Exchange orders must include an offeredBook reference'));
   }
-  // Buyer cannot be the same as seller
-  if (this.buyer.toString() === this.seller.toString()) {
+  // Buyer cannot be the same as seller when both are present
+  if (this.buyer && this.seller && this.buyer.toString() === this.seller.toString()) {
     return next(new Error('Buyer and seller cannot be the same user'));
   }
   next();

@@ -1,4 +1,4 @@
-const Book = require('../models/Book');
+const bookService = require('../Services/bookService');
 
 // GET /api/books
 // Supports: ?category=id&condition=good&minPrice=0&maxPrice=500&exchange=true&search=text&page=1&limit=10
@@ -7,7 +7,6 @@ exports.getAllBooks = async (req, res, next) => {
     const { category, condition, minPrice, maxPrice, exchange, search, page = 1, limit = 10 } = req.query;
 
     const filter = { isAvailable: true };
-
     if (category) filter.category = category;
     if (condition) filter.condition = condition;
     if (exchange === 'true') filter.isAvailableForExchange = true;
@@ -19,22 +18,9 @@ exports.getAllBooks = async (req, res, next) => {
     if (search) filter.$text = { $search: search };
 
     const skip = (Number(page) - 1) * Number(limit);
-    const total = await Book.countDocuments(filter);
-    const books = await Book.find(filter)
-      .populate('category', 'name slug')
-      .populate('seller', 'name location contactNumber')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(Number(limit));
+    const { books, total } = await bookService.findBooks({ filter, skip, limit: Number(limit) });
 
-    res.json({
-      success: true,
-      count: books.length,
-      total,
-      page: Number(page),
-      pages: Math.ceil(total / Number(limit)),
-      data: books,
-    });
+    res.json({ success: true, count: books.length, total, page: Number(page), pages: Math.ceil(total / Number(limit)), data: books });
   } catch (err) {
     next(err);
   }
@@ -43,9 +29,7 @@ exports.getAllBooks = async (req, res, next) => {
 // GET /api/books/:id
 exports.getBookById = async (req, res, next) => {
   try {
-    const book = await Book.findById(req.params.id)
-      .populate('category', 'name slug')
-      .populate('seller', 'name email location contactNumber');
+    const book = await bookService.findBookById(req.params.id);
     if (!book) return res.status(404).json({ success: false, message: 'Book not found' });
     res.json({ success: true, data: book });
   } catch (err) {
@@ -56,10 +40,9 @@ exports.getBookById = async (req, res, next) => {
 // POST /api/books
 exports.createBook = async (req, res, next) => {
   try {
-    const { title, author, isbn, description, category, condition, price, isAvailableForExchange, seller, images, language, publishedYear } = req.body;
-    const book = await Book.create({ title, author, isbn, description, category, condition, price, isAvailableForExchange, seller, images, language, publishedYear });
-    await book.populate('category', 'name slug');
-    await book.populate('seller', 'name location');
+    const { title, author, isbn, description, category, condition, price, isAvailableForExchange, seller: sellerFromBody, images, language, publishedYear } = req.body;
+    const seller = req.user ? req.user._id : sellerFromBody;
+    const book = await bookService.createBook({ title, author, isbn, description, category, condition, price, isAvailableForExchange, seller, images, language, publishedYear });
     res.status(201).json({ success: true, message: 'Book listed successfully', data: book });
   } catch (err) {
     next(err);
@@ -70,14 +53,25 @@ exports.createBook = async (req, res, next) => {
 exports.updateBook = async (req, res, next) => {
   try {
     const { title, author, isbn, description, category, condition, price, isAvailableForExchange, isAvailable, images, language, publishedYear } = req.body;
-    const book = await Book.findByIdAndUpdate(
-      req.params.id,
-      { title, author, isbn, description, category, condition, price, isAvailableForExchange, isAvailable, images, language, publishedYear },
-      { new: true, runValidators: true }
-    )
-      .populate('category', 'name slug')
-      .populate('seller', 'name location');
-    if (!book) return res.status(404).json({ success: false, message: 'Book not found' });
+    const bookDoc = await bookService.findBookById(req.params.id);
+    if (!bookDoc) return res.status(404).json({ success: false, message: 'Book not found' });
+
+    const updates = {
+      title: title ?? bookDoc.title,
+      author: author ?? bookDoc.author,
+      isbn: isbn ?? bookDoc.isbn,
+      description: description ?? bookDoc.description,
+      category: category ?? bookDoc.category,
+      condition: condition ?? bookDoc.condition,
+      price: price ?? bookDoc.price,
+      isAvailableForExchange: isAvailableForExchange ?? bookDoc.isAvailableForExchange,
+      isAvailable: isAvailable ?? bookDoc.isAvailable,
+      images: images ?? bookDoc.images,
+      language: language ?? bookDoc.language,
+      publishedYear: publishedYear ?? bookDoc.publishedYear,
+    };
+
+    const book = await bookService.updateBookById(req.params.id, updates);
     res.json({ success: true, message: 'Book listing updated', data: book });
   } catch (err) {
     next(err);
@@ -87,8 +81,10 @@ exports.updateBook = async (req, res, next) => {
 // DELETE /api/books/:id
 exports.deleteBook = async (req, res, next) => {
   try {
-    const book = await Book.findByIdAndDelete(req.params.id);
+    const book = await bookService.findBookById(req.params.id);
     if (!book) return res.status(404).json({ success: false, message: 'Book not found' });
+
+    await bookService.deleteBookById(req.params.id);
     res.json({ success: true, message: 'Book listing removed', data: {} });
   } catch (err) {
     next(err);

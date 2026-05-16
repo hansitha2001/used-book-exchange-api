@@ -49,7 +49,7 @@ const bookSchema = new mongoose.Schema(
     seller: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: [true, 'Seller is required'],
+      default: null,
     },
     isAvailable: {
       type: Boolean,
